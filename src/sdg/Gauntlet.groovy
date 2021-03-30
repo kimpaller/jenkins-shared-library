@@ -146,11 +146,12 @@ def stage_library(String stage_name) {
                 try {
                 stage('Update BOOT Files') {
                     println("Board name passed: "+board)
+                    println(gauntEnv.branches.toString())
                     if (board=="pluto")
                         nebula('dl.bootfiles --board-name=' + board + ' --branch=' + gauntEnv.firmwareVersion)
                     else
                         nebula('dl.bootfiles --board-name=' + board + ' --source-root="' + gauntEnv.nebula_local_fs_source_root + '" --source=' + gauntEnv.bootfile_source
-                                + ' --branch=' + gauntEnv.branches)
+                                +  '" --branch="' + gauntEnv.branches.toString() + '"')
                     nebula('manager.update-boot-files --board-name=' + board + ' --folder=outs', full=false, show_log=true)
                     if (board=="pluto")
                         nebula('uart.set-local-nic-ip-from-usbdev --board-name=' + board)
