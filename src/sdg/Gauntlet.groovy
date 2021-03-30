@@ -19,6 +19,7 @@ def construct(List dependencies, hdlBranch, linuxBranch, firmwareVersion, bootfi
             dependencies: dependencies,
             hdlBranch: hdlBranch,
             linuxBranch: linuxBranch,
+            branches: [linuxBranch, hdlBranch],
             firmwareVersion: firmwareVersion,
             bootfile_source: bootfile_source,
             agents_online: '',
@@ -149,7 +150,7 @@ def stage_library(String stage_name) {
                         nebula('dl.bootfiles --board-name=' + board + ' --branch=' + gauntEnv.firmwareVersion)
                     else
                         nebula('dl.bootfiles --board-name=' + board + ' --source-root="' + gauntEnv.nebula_local_fs_source_root + '" --source=' + gauntEnv.bootfile_source
-                                + ' --branch=' + gauntEnv.linuxBranch)
+                                + ' --branch=' + gauntEnv.branches)
                     nebula('manager.update-boot-files --board-name=' + board + ' --folder=outs', full=false, show_log=true)
                     if (board=="pluto")
                         nebula('uart.set-local-nic-ip-from-usbdev --board-name=' + board)
