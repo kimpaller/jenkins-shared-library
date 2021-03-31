@@ -19,6 +19,7 @@ def construct(List dependencies, hdlBranch, linuxBranch, firmwareVersion, bootfi
             dependencies: dependencies,
             hdlBranch: hdlBranch,
             linuxBranch: linuxBranch,
+            bootPartitionBranch: ( linuxBranch == 'boot_partition' )? hdlBranch: 'NA',
             firmwareVersion: firmwareVersion,
             bootfile_source: bootfile_source,
             agents_online: '',
@@ -48,7 +49,11 @@ def construct(List dependencies, hdlBranch, linuxBranch, firmwareVersion, bootfi
             libiio_repo: 'https://github.com/analogdevicesinc/libiio.git',
             libiio_branch: 'master',
             telemetry_repo: 'https://github.com/tfcollins/telemetry.git',
-            telemetry_branch: 'master'
+            telemetry_branch: 'master',
+            hdl_hash: "NA",
+            linux_hash: "NA",
+            boot_partition_hash: "NA",
+            elastic_logs : [:]
     ]
 
     gauntEnv.agents_online = getOnlineAgents()
@@ -73,6 +78,32 @@ def get_env(String param) {
  */
 def set_env(String param, String value) {
     gauntEnv[param] = value
+}
+
+/* *
+ * Getter method for elastic_logs fields
+ */
+def get_elastic_field(String board, String field, String default_value="") {
+    def value = default_value
+    if (gauntEnv.elastic_logs.containsKey(board)){
+        if(gauntEnv.elastic_logs[board].containsKey(field)){
+            value = gauntEnv.elastic_logs[board][field]
+        }
+    }
+    return value
+}
+
+/* *
+ * Setter method for elastic_logs fields
+ */
+def set_elastic_field(String board, String field, String value) {
+    def field_map = [:]
+    field_map[field] = value
+    if (gauntEnv.elastic_logs.containsKey(board)){
+        gauntEnv.elastic_logs[board][field] = value
+    }else{
+        gauntEnv.elastic_logs[board] = field_map
+    }
 }
 
 private def setup_agents() {
@@ -154,6 +185,7 @@ def stage_library(String stage_name) {
                     nebula('manager.update-boot-files --board-name=' + board + ' --folder=outs', full=false, show_log=true)
                     if (board=="pluto")
                         nebula('uart.set-local-nic-ip-from-usbdev --board-name=' + board)
+                    set_elastic_field(board, 'uboot_reached', 'True')
                 }}
                 catch(Exception ex) {
                     cleanWs();
@@ -173,23 +205,38 @@ def stage_library(String stage_name) {
             println('Added Stage SendResults')
             cls = { String board ->
                 stage('SendLogsToElastic') {
+                    is_hdl_release = "False"
+                    is_linux_release = "False"
+                    is_boot_partition_release = "False"
+                    if (gauntEnv.bootPartitionBranch == 'NA'){
+                        is_hdl_release = ( gauntEnv.hdlBranch == "release" )? "True": "False"
+                        is_linux_release = ( gauntEnv.linuxBranch == "release" )? "True": "False"
+                    }else{
+                        is_boot_partition_release = ( gauntEnv.bootPartitionBranch == "release" )? "True": "False"
+                    }
+                    println(gauntEnv.elastic_logs)
                     echo 'Starting send log to elastic search'
                     cmd = 'boot_folder_name ' + board
-                    cmd += ' hdl_hash NA'
-                    cmd += ' linux_hash NA'
-                    cmd += ' hdl_branch NA'
-                    cmd += ' linux_branch NA'
-                    cmd += ' is_hdl_release False'
-                    cmd += ' is_linux_release False'
-                    cmd += ' uboot_reached False'
-                    cmd += ' linux_prompt_reached False'
-                    cmd += ' drivers_enumerated False'
-                    cmd += ' dmesg_warnings_found False'
-                    cmd += ' dmesg_errors_found False'
+                    cmd += ' hdl_hash ' + gauntEnv.hdl_hash
+                    cmd += ' linux_hash ' + gauntEnv.linux_hash
+                    cmd += ' boot_partition_hash ' + gauntEnv.boot_partition_hash
+                    cmd += ' hdl_branch ' + gauntEnv.hdlBranch
+                    cmd += ' linux_branch ' + gauntEnv.linuxBranch
+                    cmd += ' boot_partition_branch ' + gauntEnv.bootPartitionBranch
+                    cmd += ' is_hdl_release ' + is_hdl_release
+                    cmd += ' is_linux_release '  +  is_linux_release
+                    cmd += ' is_boot_partition_release ' + is_boot_partition_release
+                    cmd += ' uboot_reached ' + get_elastic_field(board, 'uboot_reached', 'False')
+                    cmd += ' linux_prompt_reached ' + get_elastic_field(board, 'linux_prompt_reached', 'False')
+                    cmd += ' drivers_enumerated ' + get_elastic_field(board, 'drivers_enumerated', '0')
+                    cmd += ' dmesg_warnings_found ' + get_elastic_field(board, 'dmesg_warns' , '0')
+                    cmd += ' dmesg_errors_found ' + get_elastic_field(board, 'dmesg_errs' , '0')
                     // cmd +="jenkins_job_date datetime.datetime.now(),
                     cmd += ' jenkins_build_number ' + env.BUILD_NUMBER
                     cmd += ' jenkins_project_name ' + env.JOB_NAME
                     cmd += ' jenkins_agent ' + env.NODE_NAME
+                    cmd += ' pytest_errors ' + get_elastic_field(board, 'errors', '0')
+                    cmd += ' pytest_failures ' + get_elastic_field(board, 'failures', '0')
                     sendLogsToElastic(cmd)
                 }
       };
@@ -214,12 +261,18 @@ def stage_library(String stage_name) {
                         }catch(Exception ex) {
                             failed_test = failed_test + " [iio_devices check failed: $ex]"
                         }
+                        set_elastic_field(board, 'linux_prompt_reached', 'True')
                         if(failed_test && !failed_test.allWhitespace){
                             throw new Exception("failed_test")
                         }
                     }catch(Exception ex) {
                         throw new NominalException("Linux Test Failed: $ex")
                     }finally{
+                        // count dmesg errs and warns
+                        set_elastic_field(board, 'dmesg_errs', sh(returnStdout: true, script: 'cat dmesg_err.log | wc -l').trim())
+                        set_elastic_field(board, 'dmesg_warns', sh(returnStdout: true, script: 'cat dmesg_warn.log | wc -l').trim())
+                        println('Dmesg warns: ' + get_elastic_field(board, 'dmesg_warns'))
+                        println('Dmesg errs: ' + get_elastic_field(board, 'dmesg_errs'))
                         // Rename logs
                         run_i("if [ -f dmesg.log ]; then mv dmesg.log dmesg_" + board + ".log; fi")
                         run_i("if [ -f dmesg_err.log ]; then mv dmesg_err.log dmesg_" + board + "_err.log; fi")
@@ -252,6 +305,21 @@ def stage_library(String stage_name) {
                             board = board.replaceAll('-', '_')
                             cmd = "python3 -m pytest --junitxml=testxml/" + board + "_reports.xml --adi-hw-map -v -k 'not stress' -s --uri='ip:"+ip+"' -m " + board
                             def statusCode = sh script:cmd, returnStatus:true
+                            // get pytest results for logging
+                            try{
+                                def pytest_logs = ['errors', 'failures', 'skipped', 'tests']
+                                pytest_logs.each {
+                                    cmd = 'cat testxml/' + board + '_reports.xml | sed -rn \'s/.*' 
+                                    cmd+= it + '="([0-9]+)".*/\\1/p\''
+                                    println(cmd)
+                                    set_elastic_field(board.replaceAll('_', '-'), it, sh(returnStdout: true, script: cmd).trim())
+                                }
+                                println(gauntEnv.elastic_logs[board])
+                            }catch(Exception ex){
+                                println(ex)
+                                throw new NominalException('PyADITests Failed')
+                            }
+                            
                             if ((statusCode != 5) && (statusCode != 0)){
                                 // Ignore error 5 which means no tests were run
                                 throw new NominalException('PyADITests Failed')
@@ -260,6 +328,7 @@ def stage_library(String stage_name) {
                     }
                     finally
                     {
+                        // archiveArtifacts artifacts: 'pyadi-iio/testxml/*.xml', followSymlinks: false, allowEmptyArchive: true
                         junit testResults: 'pyadi-iio/testxml/*.xml', allowEmptyResults: true                    
                     }
                 }
