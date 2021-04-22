@@ -10,17 +10,18 @@ gauntEnv
  * @param dependencies - List of strings which are names of dependencies
  * @param hdlBranch - String of name of hdl branch to use for bootfile source
  * @param linuxBranch - String of name of linux branch to use for bootfile source
+ * @param bootPartitionBranch - String of name of boot partition branch to use for bootfile source, set to 'NA' if hdl and linux is to be used
  * @param firmwareVersion - String of name of firmware version branch to use for pluto and m2k
  * @param bootfile_source - String location of bootfiles. Options: sftp, artifactory, http, local
  * @return constructed object
  */
-def construct(List dependencies, hdlBranch, linuxBranch, firmwareVersion, bootfile_source) {
+def construct(List dependencies, hdlBranch, linuxBranch, bootPartitionBranch="release", firmwareVersion, bootfile_source) {
     gauntEnv = [
             dependencies: dependencies,
             hdlBranch: hdlBranch,
             linuxBranch: linuxBranch,
-            branches: [linuxBranch, hdlBranch],
-            bootPartitionBranch: ( linuxBranch == 'boot_partition' )? hdlBranch: 'NA',
+            bootPartitionBranch: bootPartitionBranch,
+            branches: ( bootPartitionBranch == 'NA')? [linuxBranch, hdlBranch]: ['boot_partition', bootPartitionBranch],
             firmwareVersion: firmwareVersion,
             bootfile_source: bootfile_source,
             agents_online: '',
