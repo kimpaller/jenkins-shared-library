@@ -361,7 +361,7 @@ private def run_agents() {
     docker_args.add('-v /etc/default:/default:ro')
     docker_args.add('-v /dev:/dev')
     docker_args.add('-v /usr/app:/app')
-    docker_args.add('--network host')
+    // docker_args.add('--network host')
     if (docker_args instanceof List) {
         docker_args = docker_args.join(' ')
     }
